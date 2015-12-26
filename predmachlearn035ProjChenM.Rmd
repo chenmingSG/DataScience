@@ -1,0 +1,73 @@
+---
+title: "Practical Machine Learning Project on Activity Prediction"
+author: "ChenM"
+date: "Saturday, December 26, 2015"
+output: html_document
+---
+# Summary
+Activity measurement and analysis are becoming popular. However, most interests are to quantify how much a particular activity is done, but rarely on how well an acitivity is done. This project use the data from <http://groupware.les.inf.puc-rio.br/har> where the lifting activity is classfied into different "classe". A random forest model has been built from the training data set and prediciton has been applied for the testing data set. 
+# Data Loading and Preminary Features Selections
+```{r setoptions, echo=TRUE}
+library(knitr);opts_chunk$set(echo=TRUE,message=FALSE,warning=FALSE)
+```
+The training and testing data sets have been downloaded from the website. A pre-processing has been caried out to find near zero features and remove them from the candiate features. After this the feature number has been reduced from 154 to 53. 
+```{r cache=TRUE}
+library(mlbench)
+library(caret)
+training<-read.csv("pml-training.csv",na.strings=" ")
+validation<-read.csv("pml-testing.csv",na.strings=" ")
+# pre-processing to remove near zero features
+training<-training[,6:160]
+validation<-validation[,6:160]
+nzvTrain <- nearZeroVar(training, saveMetrics= TRUE)
+nzvTrainRemain<-subset(nzvTrain,nzv==FALSE)
+trainingfilter<-subset(training,select=row.names(nzvTrainRemain))
+```
+Next a seond round of processing is to filter those features with high correlation to othe features. The cut-off is set as 0.75. After this processing the number of features has been reduced from 53 to 32. We are ready for more computation intensive model seleciton. 
+```{r cache=TRUE}
+#remove highly correlated items
+correlationMatrix <- cor(trainingfilter[,1:53])
+highlyCorrelated <- findCorrelation(correlationMatrix, cutoff=0.75)
+trainingfilterColnames<-colnames(trainingfilter)
+trainingfilter2<-subset(trainingfilter,select=trainingfilterColnames[-highlyCorrelated])
+```
+# Randrom Forest Model  Build with Features Selections
+Since preminary feature selections have already significantly reduced the number of features, we apply random forest model here which has high accuracy. Feature number 20 has acheived good accuracy with cross validation. 
+```{r cache=TRUE}
+set.seed(10)
+subsets <- c(10,20,30)
+ctrl <- rfeControl(functions = rfFuncs,
+                   method = "cv",
+                   number = 10,
+                   verbose = FALSE)
+rfProfile <- rfe(trainingfilter2[,-33], trainingfilter2[,33],
+                 sizes = subsets,
+                 rfeControl = ctrl)
+print(rfProfile)
+predictors(rfProfile)
+plot(rfProfile, type = c("g", "o"))
+```
+
+# Out of Sample Error
+The confusion matrix is shown below where the class error is on average 0.14%, while the highest error is for the prediciton group classe C which is 0.32%. Since 10 folder cross validation has been used for the model building, this error represent the out of sample error. For randon forest, the out of bag error which is 0.13% is in fact as accurate as the out of sample eror which is 0.14%.  
+```{r cache=TRUE}
+rfProfile$fit
+```
+# Prediction on the testing data set
+The random forest model built above is applied to the 20 testing data set. The predicited value is stored in answers and submission files have been created for each group of testing data. 
+```{r cache=TRUE}
+validationX<-subset(validation,select=predictors(rfProfile))
+classeValidation<-predict(rfProfile,validationX)
+answers<-classeValidation$pred
+answers
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(answers)
+```
+
+
